@@ -3,11 +3,15 @@ import { Calendar, ArrowLeft, NotebookPen, Loader2, Trash2, Plus, Code2, LockKey
 import ReactMarkdown from 'react-markdown';
 import { Link } from 'react-router-dom';
 
-const API_BASE_URL = 'https://portfolioserver-l5sd.onrender.com/';
+const API_BASE_URL = 'https://portfolioserver-l5sd.onrender.com';
 
 const responseError = async (response, fallback) => {
-  const data = await response.json().catch(() => ({}));
-  return data.error || fallback;
+  try {
+    const data = await response.json();
+    return data.error || `${fallback} (HTTP ${response.status})`;
+  } catch {
+    return `${fallback} (HTTP ${response.status})`;
+  }
 };
 
 const uploadProjectImage = async (file, adminKey) => {
@@ -279,28 +283,30 @@ const fetchEvents = useCallback(async () => {
                 </button>
               )}
               {showAdminForm && !adminKey && (
-                <form onSubmit={handleAdminUnlock} className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-                  <label className="sr-only" htmlFor="admin-api-key">Admin key</label>
-                  <input
-                    id="admin-api-key"
-                    type="password"
-                    autoComplete="current-password"
-                    value={adminKeyInput}
-                    onChange={(event) => setAdminKeyInput(event.target.value)}
-                    placeholder="Enter admin key"
-                    className="min-w-0 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white outline-none focus:border-violet-400 sm:w-56"
-                    required
-                  />
-                  <button
-                    type="submit"
-                    disabled={isUnlockingAdmin}
-                    className="rounded-full bg-violet-500 px-5 py-2 text-sm font-semibold text-white transition hover:bg-violet-400 disabled:opacity-60"
-                  >
-                    {isUnlockingAdmin ? 'Verifying...' : 'Unlock'}
-                  </button>
+                <form onSubmit={handleAdminUnlock} className="w-full sm:w-auto">
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <label className="sr-only" htmlFor="admin-api-key">Admin key</label>
+                    <input
+                      id="admin-api-key"
+                      type="password"
+                      autoComplete="current-password"
+                      value={adminKeyInput}
+                      onChange={(event) => setAdminKeyInput(event.target.value)}
+                      placeholder="Enter admin key"
+                      className="min-w-0 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white outline-none focus:border-violet-400 sm:w-56"
+                      required
+                    />
+                    <button
+                      type="submit"
+                      disabled={isUnlockingAdmin}
+                      className="rounded-full bg-violet-500 px-5 py-2 text-sm font-semibold text-white transition hover:bg-violet-400 disabled:opacity-60"
+                    >
+                      {isUnlockingAdmin ? 'Verifying...' : 'Unlock'}
+                    </button>
+                  </div>
+                  {adminError && <p role="alert" className="mt-2 text-sm text-red-300">{adminError}</p>}
                 </form>
               )}
-              {adminError && <p role="alert" className="text-sm text-red-300">{adminError}</p>}
             </div>
 
             {isLoading ? (
