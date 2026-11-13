@@ -3,7 +3,7 @@ import { Code2, Users, User, RefreshCw, CircleArrowLeft, Sparkles } from 'lucide
 import { Link } from 'react-router-dom';
 import io from 'socket.io-client';
 
-const socket = io('https://amie-server-mdhz.onrender.com', {
+const socket = io('https://portfolioserver-l5sd.onrender.com', {
   autoConnect: false,
   transports: ['websocket']
 });

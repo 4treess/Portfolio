@@ -19,7 +19,7 @@ const Timeline = () => {
 const fetchEvents = useCallback(async () => {
   setIsLoading(true);
   try {
-    const response = await fetch(`https://amie-server-mdhz.onrender.com/api/events/${sortOrder}`);
+    const response = await fetch(`https://portfolioserver-l5sd.onrender.com/api/events/${sortOrder}`);
     
     if (!response.ok) {
       const text = await response.text(); 
@@ -60,7 +60,7 @@ const fetchEvents = useCallback(async () => {
         const base64 = await toBase64(selectedFile);
         const fileName = `project-${Date.now()}.jpg`;
         const ghResponse = await fetch(
-          `https://api.github.com/repos/4treess/amie/contents/public/images/${fileName}`,
+          `https://api.github.com/repos/4treess/Portfolio/contents/public/images/${fileName}`,
           {
             method: 'PUT',
             headers: {
@@ -80,7 +80,7 @@ const fetchEvents = useCallback(async () => {
       }
 
       // Phase B: MongoDB Save
-      const mongoResponse = await fetch('https://amie-server-mdhz.onrender.com/api/events', {
+      const mongoResponse = await fetch('https://portfolioserver-l5sd.onrender.com/api/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...newEvent, type: 'project', image: finalImagePath }),
@@ -130,7 +130,7 @@ const fetchEvents = useCallback(async () => {
       }
 
       // Phase B: MongoDB Save
-      const mongoResponse = await fetch(`https://amie-server-mdhz.onrender.com/api/events/${selectedEvent._id}`, {
+      const mongoResponse = await fetch(`https://portfolioserver-l5sd.onrender.com/api/events/${selectedEvent._id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...newEvent, type: 'project', image: finalImagePath }),
@@ -156,7 +156,7 @@ const fetchEvents = useCallback(async () => {
     if (!confirmDelete) return; // Stop if they click cancel
 
     try {
-      const response = await fetch(`https://amie-server-mdhz.onrender.com/api/events/${id}`, {
+      const response = await fetch(`https://portfolioserver-l5sd.onrender.com/api/events/${id}`, {
         method: 'DELETE',
       });
 

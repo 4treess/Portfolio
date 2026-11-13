@@ -16,7 +16,7 @@ import { Link } from 'react-router-dom';
 import io from 'socket.io-client';
 
 // Socket instance initialized outside component to prevent multiple connections on re-render
-const socket = io('https://amie-server-mdhz.onrender.com', {
+const socket = io('https://portfolioserver-l5sd.onrender.com', {
   autoConnect: false,
   transports: ['websocket']
 });
