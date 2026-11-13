@@ -1,7 +1,39 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Calendar, ArrowLeft, NotebookPen, Loader2, Trash2, Plus, Code2 } from 'lucide-react';
+import { Calendar, ArrowLeft, NotebookPen, Loader2, Trash2, Plus, Code2, LockKeyhole, LogOut } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Link } from 'react-router-dom';
+
+const API_BASE_URL = 'https://portfolioserver-l5sd.onrender.com';
+
+const responseError = async (response, fallback) => {
+  const data = await response.json().catch(() => ({}));
+  return data.error || fallback;
+};
+
+const uploadProjectImage = async (file, adminKey) => {
+  const base64 = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = () => reject(new Error('Could not read the selected image.'));
+  });
+
+  const response = await fetch(`${API_BASE_URL}/api/admin/images`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${adminKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ content: base64, contentType: file.type })
+  });
+
+  if (!response.ok) {
+    throw new Error(await responseError(response, 'Image upload failed.'));
+  }
+
+  const result = await response.json();
+  return result.url;
+};
 
 const Timeline = () => {
   const [events, setEvents] = useState([]);
@@ -11,6 +43,11 @@ const Timeline = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedFile, setSelectedFile] = useState(null);
   const [sortOrder, setSortOrder] = useState(-1);
+  const [adminKey, setAdminKey] = useState('');
+  const [adminKeyInput, setAdminKeyInput] = useState('');
+  const [showAdminForm, setShowAdminForm] = useState(false);
+  const [isUnlockingAdmin, setIsUnlockingAdmin] = useState(false);
+  const [adminError, setAdminError] = useState('');
   const [newEvent, setNewEvent] = useState({
     date: '', year: new Date().getFullYear().toString(), shortDesc: '', fullTitle: '', story: '', image: ''
   });
@@ -19,7 +56,7 @@ const Timeline = () => {
 const fetchEvents = useCallback(async () => {
   setIsLoading(true);
   try {
-    const response = await fetch(`https://portfolioserver-l5sd.onrender.com/api/events/${sortOrder}`);
+    const response = await fetch(`${API_BASE_URL}/api/events/${sortOrder}`);
     
     if (!response.ok) {
       const text = await response.text(); 
@@ -28,7 +65,7 @@ const fetchEvents = useCallback(async () => {
     }
 
     const data = await response.json();
-    setEvents(data.filter((event) => event.type === 'project'));
+    setEvents(data);
   } catch (err) {
     console.error("Fetch error:", err);
   } finally {
@@ -41,111 +78,109 @@ const fetchEvents = useCallback(async () => {
     return () => window.clearTimeout(timeoutId);
   }, [fetchEvents]);
 
-  // 2. HELPER: CONVERT FILE TO BASE64
-  const toBase64 = (file) => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => resolve(reader.result.split(',')[1]);
-    reader.onerror = error => reject(error);
-  });
+  const handleAdminUnlock = async (event) => {
+    event.preventDefault();
+    const key = adminKeyInput.trim();
+    if (!key) return;
 
-  // 3. HANDLE SUBMIT (GITHUB THEN MONGO)
+    setIsUnlockingAdmin(true);
+    setAdminError('');
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/session`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}` }
+      });
+      if (!response.ok) {
+        throw new Error(await responseError(response, 'Could not verify the admin key.'));
+      }
+
+      setAdminKey(key);
+      setAdminKeyInput('');
+      setShowAdminForm(false);
+    } catch (err) {
+      setAdminError(err.message || 'Could not reach the server to verify the admin key.');
+    } finally {
+      setIsUnlockingAdmin(false);
+    }
+  };
+
+  const handleAdminLock = () => {
+    setAdminKey('');
+    setAdminKeyInput('');
+    setShowAdminForm(false);
+    setShowForm(false);
+    setEditForm(false);
+    setSelectedFile(null);
+  };
+
+  // 3. HANDLE SUBMIT (SERVER IMAGE UPLOAD THEN MONGO)
   const handleAddEvent = async (e) => {
     e.preventDefault();
     try {
       let finalImagePath = newEvent.image;
 
-      // Phase A: GitHub Upload
       if (selectedFile) {
-        const base64 = await toBase64(selectedFile);
-        const fileName = `project-${Date.now()}.jpg`;
-        const ghResponse = await fetch(
-          `https://api.github.com/repos/4treess/Portfolio/contents/public/images/${fileName}`,
-          {
-            method: 'PUT',
-            headers: {
-              'Authorization': `token ${import.meta.env.VITE_GITHUB_TOKEN}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              message: `${newEvent.shortDesc}`,
-              content: base64,
-            }),
-          }
-        );
-        if (!ghResponse.ok) throw new Error("GitHub Upload Failed");
-        // Using the Raw URL so it works instantly without waiting for a Vercel build
-        finalImagePath = `https://raw.githubusercontent.com/4treess/amie/main/public/images/${fileName}`;
+        finalImagePath = await uploadProjectImage(selectedFile, adminKey);
         setSelectedFile(null);
       }
 
-      // Phase B: MongoDB Save
-      const mongoResponse = await fetch('https://portfolioserver-l5sd.onrender.com/api/events', {
+      const mongoResponse = await fetch(`${API_BASE_URL}/api/events`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${adminKey}`,
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({ ...newEvent, type: 'project', image: finalImagePath }),
       });
 
-      if (mongoResponse.ok) {
-        alert("Project saved.");
-        setShowForm(false);
-        setNewEvent({ date: '', year: new Date().getFullYear().toString(), shortDesc: '', fullTitle: '', story: '', image: '' });
-        setSelectedFile(null);
-        fetchEvents(); // Refresh the list
+      if (!mongoResponse.ok) {
+        throw new Error(await responseError(mongoResponse, 'Could not save the project.'));
       }
+
+      alert("Project saved.");
+      setShowForm(false);
+      setNewEvent({ date: '', year: new Date().getFullYear().toString(), shortDesc: '', fullTitle: '', story: '', image: '' });
+      setSelectedFile(null);
+      fetchEvents();
     } catch (err) {
       console.error("Error saving event:", err);
-      alert("Check console for error details.");
+      alert(err.message || "Could not save the project.");
     }
   };
 
-    // 4. HANDLE Edit (GITHUB THEN MONGO)
+    // 4. HANDLE EDIT (SERVER IMAGE UPLOAD THEN MONGO)
   const handleEditEvent = async (e) => {
     e.preventDefault();
     try {
       let finalImagePath = selectedEvent.image;
 
-      // Phase A: GitHub Upload
       if (selectedFile) {
-        const base64 = await toBase64(selectedFile);
-        const fileName = `project-${Date.now()}.jpg`;
-        const ghResponse = await fetch(
-          `https://api.github.com/repos/4treess/amie/contents/public/images/${fileName}`,
-          {
-            method: 'PUT',
-            headers: {
-              'Authorization': `token ${import.meta.env.VITE_GITHUB_TOKEN}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              message: `${newEvent.shortDesc}`,
-              content: base64,
-            }),
-          }
-        );
-        if (!ghResponse.ok) throw new Error("GitHub Upload Failed");
-        // Using the Raw URL so it works instantly without waiting for a Vercel build
-        finalImagePath = `https://raw.githubusercontent.com/4treess/amie/main/public/images/${fileName}`;
+        finalImagePath = await uploadProjectImage(selectedFile, adminKey);
         setSelectedFile(null);
       }
 
-      // Phase B: MongoDB Save
-      const mongoResponse = await fetch(`https://portfolioserver-l5sd.onrender.com/api/events/${selectedEvent._id}`, {
+      const mongoResponse = await fetch(`${API_BASE_URL}/api/events/${selectedEvent._id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${adminKey}`,
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({ ...newEvent, type: 'project', image: finalImagePath }),
       });
 
-      if (mongoResponse.ok) {
-        alert("Project updated.");
-        setEditForm(false);
-        setSelectedEvent(null);
-        setNewEvent({ date: '', year: '2026', shortDesc: '', fullTitle: '', story: '', image: '' }); 
-        fetchEvents(); // Refresh the list
+      if (!mongoResponse.ok) {
+        throw new Error(await responseError(mongoResponse, 'Could not update the project.'));
       }
+
+      alert("Project updated.");
+      setEditForm(false);
+      setSelectedEvent(null);
+      setNewEvent({ date: '', year: new Date().getFullYear().toString(), shortDesc: '', fullTitle: '', story: '', image: '' });
+      setSelectedFile(null);
+      fetchEvents();
     } catch (err) {
       console.error("Error saving event:", err);
-      alert("Check console for error details.");
+      alert(err.message || "Could not update the project.");
     }
   };
 
@@ -156,21 +191,21 @@ const fetchEvents = useCallback(async () => {
     if (!confirmDelete) return; // Stop if they click cancel
 
     try {
-      const response = await fetch(`https://portfolioserver-l5sd.onrender.com/api/events/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/events/${id}`, {
         method: 'DELETE',
+        headers: { Authorization: `Bearer ${adminKey}` }
       });
 
-      if (response.ok) {
-        alert("Project deleted.");
-        setSelectedEvent(null); // Close the detail view panel
-        fetchEvents(); // Refresh the timeline list
-      } else {
-        const errorData = await response.json();
-        alert(`Delete failed: ${errorData.error}`);
+      if (!response.ok) {
+        throw new Error(await responseError(response, 'Could not delete the project.'));
       }
+
+      alert("Project deleted.");
+      setSelectedEvent(null);
+      fetchEvents();
     } catch (err) {
       console.error("Error deleting event:", err);
-      alert("Could not reach the server to delete the project.");
+      alert(err.message || "Could not reach the server to delete the project.");
     }
   };
 
@@ -218,6 +253,55 @@ const fetchEvents = useCallback(async () => {
                 </button>
               </div>
             </header>
+
+            <div className="mb-8 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+              {adminKey ? (
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-emerald-300">Admin access unlocked</span>
+                  <button
+                    type="button"
+                    onClick={handleAdminLock}
+                    className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-slate-300 transition hover:border-violet-400/50 hover:text-white"
+                  >
+                    <LogOut size={15} /> Lock
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAdminForm((visible) => !visible);
+                    setAdminError('');
+                  }}
+                  className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-slate-300 transition hover:border-violet-400/50 hover:text-white"
+                >
+                  <LockKeyhole size={15} /> Admin access
+                </button>
+              )}
+              {showAdminForm && !adminKey && (
+                <form onSubmit={handleAdminUnlock} className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                  <label className="sr-only" htmlFor="admin-api-key">Admin key</label>
+                  <input
+                    id="admin-api-key"
+                    type="password"
+                    autoComplete="current-password"
+                    value={adminKeyInput}
+                    onChange={(event) => setAdminKeyInput(event.target.value)}
+                    placeholder="Enter admin key"
+                    className="min-w-0 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white outline-none focus:border-violet-400 sm:w-56"
+                    required
+                  />
+                  <button
+                    type="submit"
+                    disabled={isUnlockingAdmin}
+                    className="rounded-full bg-violet-500 px-5 py-2 text-sm font-semibold text-white transition hover:bg-violet-400 disabled:opacity-60"
+                  >
+                    {isUnlockingAdmin ? 'Verifying...' : 'Unlock'}
+                  </button>
+                </form>
+              )}
+              {adminError && <p role="alert" className="text-sm text-red-300">{adminError}</p>}
+            </div>
 
             {isLoading ? (
               <div className="flex items-center gap-3 py-16 text-slate-400">
@@ -267,13 +351,15 @@ const fetchEvents = useCallback(async () => {
             )}
 
             <div className="mt-10 flex justify-center">
-              <button
-                type="button"
-                onClick={() => setShowForm(true)}
-                className="flex items-center gap-2 rounded-full bg-violet-500 px-6 py-3 font-semibold text-white shadow-lg shadow-violet-950/40 transition hover:bg-violet-400"
-              >
-                <Plus size={18} /> Add a project
-              </button>
+              {adminKey && (
+                <button
+                  type="button"
+                  onClick={() => setShowForm(true)}
+                  className="flex items-center gap-2 rounded-full bg-violet-500 px-6 py-3 font-semibold text-white shadow-lg shadow-violet-950/40 transition hover:bg-violet-400"
+                >
+                  <Plus size={18} /> Add a project
+                </button>
+              )}
             </div>
           </>
         ) : (
@@ -289,34 +375,36 @@ const fetchEvents = useCallback(async () => {
               >
                 <ArrowLeft size={20} />
               </button>
-              <div className="relative z-10 flex gap-2">
-                <button
-                  type="button"
-                  aria-label="Edit project"
-                  onClick={() => {
-                    setNewEvent({
-                      date: selectedEvent.date || '',
-                      year: selectedEvent.year || '',
-                      shortDesc: selectedEvent.shortDesc || '',
-                      fullTitle: selectedEvent.fullTitle || '',
-                      story: selectedEvent.story || '',
-                      image: selectedEvent.image || ''
-                    });
-                    setEditForm(true);
-                  }}
-                  className="rounded-full border border-white/15 bg-black/40 p-3 text-white transition hover:bg-violet-500"
-                >
-                  <NotebookPen size={18} />
-                </button>
-                <button
-                  type="button"
-                  aria-label="Delete project"
-                  onClick={() => handleDeleteEvent(selectedEvent._id)}
-                  className="rounded-full border border-white/15 bg-black/40 p-3 text-white transition hover:bg-red-500"
-                >
-                  <Trash2 size={18} />
-                </button>
-              </div>
+              {adminKey && (
+                <div className="relative z-10 flex gap-2">
+                  <button
+                    type="button"
+                    aria-label="Edit project"
+                    onClick={() => {
+                      setNewEvent({
+                        date: selectedEvent.date || '',
+                        year: selectedEvent.year || '',
+                        shortDesc: selectedEvent.shortDesc || '',
+                        fullTitle: selectedEvent.fullTitle || '',
+                        story: selectedEvent.story || '',
+                        image: selectedEvent.image || ''
+                      });
+                      setEditForm(true);
+                    }}
+                    className="rounded-full border border-white/15 bg-black/40 p-3 text-white transition hover:bg-violet-500"
+                  >
+                    <NotebookPen size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Delete project"
+                    onClick={() => handleDeleteEvent(selectedEvent._id)}
+                    className="rounded-full border border-white/15 bg-black/40 p-3 text-white transition hover:bg-red-500"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+              )}
             </div>
             <div className="p-6 sm:p-10">
               <div className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-violet-300">
