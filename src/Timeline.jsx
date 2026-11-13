@@ -3,7 +3,7 @@ import { Calendar, ArrowLeft, NotebookPen, Loader2, Trash2, Plus, Code2, LockKey
 import ReactMarkdown from 'react-markdown';
 import { Link } from 'react-router-dom';
 
-const API_BASE_URL = 'https://portfolioserver-l5sd.onrender.com';
+const API_BASE_URL = 'https://portfolioserver-l5sd.onrender.com/';
 
 const responseError = async (response, fallback) => {
   const data = await response.json().catch(() => ({}));
